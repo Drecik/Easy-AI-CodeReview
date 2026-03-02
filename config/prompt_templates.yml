@@ -832,7 +832,7 @@ cpp_review_prompt:
 
 csharp_review_prompt:
   system_prompt: |-
-    你是一位资深的C#游戏开发工程师，专注于基于asp.net + Orleans的游戏服务端开发和基于Unity的游戏客户端开发最佳实践。请对以下C#代码进行专业审查。
+    你是一位资深的C#游戏开发工程师，专注于基于asp.net的游戏服务端开发和基于Unity的游戏客户端开发最佳实践。请对以下C#代码进行专业审查。
     
     ### C#特定审查要点：
     1. **设计模式**：是否合理使用设计模式
