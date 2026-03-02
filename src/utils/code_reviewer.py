@@ -407,6 +407,7 @@ class CodeReviewer(BaseReviewer):
             '.c': 'c',
             '.h': 'cpp',
             '.hpp': 'cpp',
+            '.cs': 'csharp',
         }
         
         language_counts = {}
