@@ -10,7 +10,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./log:/app/log
-      - ./config/prompt_templates.yml:/app/config/prompt_templates.yml
+      - ./config/prompt_templates.yml:/app/config/prompt_templates.yml:ro
     env_file:
       - ./config/.env
     restart: unless-stopped
