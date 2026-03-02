@@ -35,7 +35,9 @@ def handle_push_event(webhook_data: dict, gitlab_token: str, gitlab_url: str, gi
             changes = filter_changes(changes)
             if not changes:
                 logger.info('未检测到PUSH代码的修改,修改文件可能不满足SUPPORTED_EXTENSIONS。')
-            review_result = "关注的文件没有修改"
+                return
+
+            review_result = None
 
             if len(changes) > 0:
                 commits_text = ';'.join(commit.get('message', '').strip() for commit in commits)
@@ -163,7 +165,9 @@ def handle_github_push_event(webhook_data: dict, github_token: str, github_url: 
             changes = filter_github_changes(changes)
             if not changes:
                 logger.info('未检测到PUSH代码的修改,修改文件可能不满足SUPPORTED_EXTENSIONS。')
-            review_result = "关注的文件没有修改"
+                return
+
+            review_result = None
 
             if len(changes) > 0:
                 commits_text = ';'.join(commit.get('message', '').strip() for commit in commits)
@@ -303,7 +307,9 @@ def handle_gitea_push_event(webhook_data: dict, gitea_token: str, gitea_url: str
             changes = filter_gitea_changes(changes)
             if not changes:
                 logger.info('未检测到PUSH代码的修改,修改文件可能不满足SUPPORTED_EXTENSIONS。')
-            review_result = "关注的文件没有修改"
+                return
+
+            review_result = None
 
             if len(changes) > 0:
                 commits_text = ';'.join(commit.get('message', '').strip() for commit in commits)
