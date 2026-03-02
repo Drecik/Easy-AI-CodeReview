@@ -300,12 +300,37 @@ class PushHandler:
             if after.startswith('0000000'):
                 # 删除分支处理
                 return []
-            if before.startswith('0000000'):
-                # 创建分支处理
-                first_commit_id = self.commit_list[0].get('id')
-                parent_commit_id = self.get_parent_commit_id(first_commit_id)
-                if parent_commit_id:
-                    before = parent_commit_id
-            return self.repository_compare(before, after)
+
+            # 检查是否存在以 [ci-skip] 开头的提交信息
+            skip_ids = [c.get('id') for c in self.commit_list if c.get('message', '').strip().startswith('[ci-skip]')]
+
+            # 如果没有需要跳过的提交，仍然使用一次性 compare 提高效率
+            if not skip_ids:
+                if before.startswith('0000000'):
+                    # 创建分支处理
+                    first_commit_id = self.commit_list[0].get('id')
+                    parent_commit_id = self.get_parent_commit_id(first_commit_id)
+                    if parent_commit_id:
+                        before = parent_commit_id
+                return self.repository_compare(before, after)
+
+            # 否则，按提交逐个获取变更并排除被标记为 [ci-skip] 的提交
+            aggregated_diffs = []
+            for commit in self.commit_list:
+                commit_id = commit.get('id')
+                if not commit_id or commit_id in skip_ids:
+                    logger.info(f"Skipping commit {commit_id} due to [ci-skip] flag.")
+                    continue
+
+                parent_id = self.get_parent_commit_id(commit_id)
+                if not parent_id:
+                    logger.info(f"Parent commit not found for {commit_id}, skipping its diff.")
+                    continue
+
+                diffs = self.repository_compare(parent_id, commit_id)
+                if diffs:
+                    aggregated_diffs.extend(diffs)
+
+            return aggregated_diffs
         else:
             return []
