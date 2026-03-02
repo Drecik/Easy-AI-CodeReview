@@ -74,6 +74,7 @@ class CodeReviewer(BaseReviewer):
             'js': 'javascript_review_prompt',
             'ts': 'javascript_review_prompt',
             'py': 'python_review_prompt',
+            'csharp': 'csharp_review_prompt',
         }
 
     def _detect_language_from_diff(self, diffs_text: str) -> str:
@@ -95,6 +96,7 @@ class CodeReviewer(BaseReviewer):
             '.c': 'c',
             '.h': 'cpp',
             '.hpp': 'cpp',
+            '.cs': 'csharp',
         }
         
         # 统计各种语言的文件数量
