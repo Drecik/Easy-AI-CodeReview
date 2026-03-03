@@ -277,6 +277,47 @@ class CodeReviewer(BaseReviewer):
         
         return "\n".join(diff_content)
 
+    def _shrink_diff_paths_to_filename(self, diffs_text: str) -> str:
+        """将diff头部中的文件路径缩短为文件名，减少prompt长度"""
+        if not diffs_text:
+            return diffs_text
+
+        def to_filename(path_text: str) -> str:
+            if path_text == '/dev/null':
+                return path_text
+
+            normalized = path_text.replace('\\', '/')
+            prefix = ''
+            if normalized.startswith('a/') or normalized.startswith('b/'):
+                prefix = normalized[:2]
+                normalized = normalized[2:]
+
+            filename = os.path.basename(normalized) or normalized
+            return f"{prefix}{filename}" if prefix else filename
+
+        result_lines = []
+        for line in diffs_text.split('\n'):
+            diff_match = re.match(r'^diff --git a/(.+) b/(.+)$', line)
+            if diff_match:
+                old_name = os.path.basename(diff_match.group(1).replace('\\', '/'))
+                new_name = os.path.basename(diff_match.group(2).replace('\\', '/'))
+                result_lines.append(f"diff --git a/{old_name} b/{new_name}")
+                continue
+
+            minus_match = re.match(r'^--- (.+)$', line)
+            if minus_match:
+                result_lines.append(f"--- {to_filename(minus_match.group(1))}")
+                continue
+
+            plus_match = re.match(r'^\+\+\+ (.+)$', line)
+            if plus_match:
+                result_lines.append(f"+++ {to_filename(plus_match.group(1))}")
+                continue
+
+            result_lines.append(line)
+
+        return '\n'.join(result_lines)
+
     def review_and_strip_code(self, changes_text: str, commits_text: str = "", changes_data: list = None) -> str:
         """
         Review判断changes_text超出取前REVIEW_MAX_TOKENS个token，超出则截断changes_text，
@@ -300,6 +341,20 @@ class CodeReviewer(BaseReviewer):
         if not changes_text:
             logger.info("代码为空, diffs_text = %", str(changes_text))
             return "代码为空"
+
+        # 精简diff头中的文件路径，只保留文件名，减少prompt长度
+        original_chars = len(changes_text)
+        original_tokens = count_tokens(changes_text)
+        changes_text = self._shrink_diff_paths_to_filename(changes_text)
+        shrunk_chars = len(changes_text)
+        shrunk_tokens = count_tokens(changes_text)
+        saved_chars = original_chars - shrunk_chars
+        saved_tokens = original_tokens - shrunk_tokens
+        logger.info(
+            "Diff路径瘦身完成: chars %s -> %s (saved=%s), tokens %s -> %s (saved=%s)",
+            original_chars, shrunk_chars, saved_chars,
+            original_tokens, shrunk_tokens, saved_tokens
+        )
 
         # 在截断之前先进行语言检测，确保能正确识别文件类型
         detected_language = self._detect_language_from_diff(changes_text)
