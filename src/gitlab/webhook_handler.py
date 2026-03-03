@@ -279,83 +279,6 @@ class PushHandler:
                 f"Failed to get changes for repository_compare: {response.status_code}, {response.text}")
             return []
 
-    def repository_commit_diff(self, commit_id: str, per_page: int = 100, page: int = 1):
-        # 获取单个提交的diff（支持分页）
-        url = f"{urljoin(f'{self.gitlab_url}/', f'api/v4/projects/{self.project_id}/repository/commits/{commit_id}/diff')}?per_page={per_page}&page={page}"
-        headers = {
-            'Private-Token': self.gitlab_token
-        }
-        response = requests.get(url, headers=headers, verify=False)
-        logger.debug(
-            f"Get changes response from GitLab for commit_diff: {response.status_code}, {response.text}, URL: {url}")
-
-        if response.status_code == 200:
-            return response.json(), response.headers
-        else:
-            logger.warn(
-                f"Failed to get changes for commit_diff {commit_id}: {response.status_code}, {response.text}")
-            return [], {}
-
-    def _collect_expected_paths_from_commits(self) -> set:
-        # 从 webhook push payload 的 commits 字段收集本次 push 涉及的文件路径
-        expected_paths = set()
-        for commit in self.commit_list:
-            for key in ('added', 'modified', 'removed'):
-                for path in commit.get(key, []) or []:
-                    if path:
-                        expected_paths.add(path)
-        return expected_paths
-
-    def _collect_paths_from_diffs(self, diffs: list) -> set:
-        diff_paths = set()
-        for diff in diffs:
-            path = diff.get('new_path') or diff.get('old_path')
-            if path:
-                diff_paths.add(path)
-        return diff_paths
-
-    def _compare_result_incomplete(self, diffs: list) -> bool:
-        # 用 webhook 中的文件列表校验 compare 结果是否完整
-        expected_paths = self._collect_expected_paths_from_commits()
-        if not expected_paths:
-            return False
-
-        diff_paths = self._collect_paths_from_diffs(diffs)
-        missing_paths = expected_paths - diff_paths
-        if missing_paths:
-            logger.warning(
-                f"repository_compare result may be incomplete. missing_paths={list(missing_paths)[:20]}, "
-                f"expected={len(expected_paths)}, actual={len(diff_paths)}"
-            )
-            return True
-        return False
-
-    def _aggregate_commit_diffs(self, skip_ids: set = None) -> list:
-        # 逐个提交获取 diff（分页拉取），避免 compare 接口截断导致漏文件
-        skip_ids = skip_ids or set()
-        aggregated_diffs = []
-
-        for commit in self.commit_list:
-            commit_id = commit.get('id')
-            if not commit_id or commit_id in skip_ids:
-                if commit_id in skip_ids:
-                    logger.info(f"Skipping commit {commit_id} due to [ci-skip] flag.")
-                continue
-
-            page = 1
-            while True:
-                page_diffs, headers = self.repository_commit_diff(commit_id, per_page=100, page=page)
-                if not page_diffs:
-                    break
-                aggregated_diffs.extend(page_diffs)
-
-                next_page = headers.get('X-Next-Page', '')
-                if not next_page:
-                    break
-                page = int(next_page)
-
-        return aggregated_diffs
-
     def get_push_changes(self) -> list:
         # 检查是否为 Push 事件
         if self.event_type != 'push':
@@ -366,6 +289,9 @@ class PushHandler:
         if not self.commit_list:
             logger.info("No commits found in push event.")
             return []
+        headers = {
+            'Private-Token': self.gitlab_token
+        }
 
         # 优先尝试compare API获取变更
         before = self.webhook_data.get('before', '')
@@ -376,7 +302,7 @@ class PushHandler:
                 return []
 
             # 检查是否存在以 [ci-skip] 开头的提交信息
-            skip_ids = {c.get('id') for c in self.commit_list if c.get('message', '').strip().startswith('[ci-skip]')}
+            skip_ids = [c.get('id') for c in self.commit_list if c.get('message', '').strip().startswith('[ci-skip]')]
 
             # 如果没有需要跳过的提交，仍然使用一次性 compare 提高效率
             if not skip_ids:
@@ -386,14 +312,25 @@ class PushHandler:
                     parent_commit_id = self.get_parent_commit_id(first_commit_id)
                     if parent_commit_id:
                         before = parent_commit_id
-                compare_diffs = self.repository_compare(before, after)
-                if compare_diffs and not self._compare_result_incomplete(compare_diffs):
-                    return compare_diffs
-
-                logger.warning("Fallback to per-commit diff aggregation because compare result is empty or incomplete.")
-                return self._aggregate_commit_diffs()
+                return self.repository_compare(before, after)
 
             # 否则，按提交逐个获取变更并排除被标记为 [ci-skip] 的提交
-            return self._aggregate_commit_diffs(skip_ids=skip_ids)
+            aggregated_diffs = []
+            for commit in self.commit_list:
+                commit_id = commit.get('id')
+                if not commit_id or commit_id in skip_ids:
+                    logger.info(f"Skipping commit {commit_id} due to [ci-skip] flag.")
+                    continue
+
+                parent_id = self.get_parent_commit_id(commit_id)
+                if not parent_id:
+                    logger.info(f"Parent commit not found for {commit_id}, skipping its diff.")
+                    continue
+
+                diffs = self.repository_compare(parent_id, commit_id)
+                if diffs:
+                    aggregated_diffs.extend(diffs)
+
+            return aggregated_diffs
         else:
             return []
