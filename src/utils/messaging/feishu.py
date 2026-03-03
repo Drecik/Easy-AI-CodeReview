@@ -108,6 +108,7 @@ class FeishuNotifier:
                     },
                 }
 
+            logger.info(f"正在发送飞书消息... data:{data}")
             response = requests.post(
                 url=post_url,
                 json=data,
